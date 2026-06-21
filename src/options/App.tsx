@@ -9,6 +9,15 @@ import {
 import { getStorage, setStorage } from '../lib/storage'
 import { testKey } from '../lib/gemini'
 import { parseFile } from '../lib/cv'
+import {
+  upsertJob,
+  getJob,
+  getAllJobs,
+  getJobsByStatus,
+  setStatus,
+  deleteJob,
+  isGhosted,
+} from '../lib/store'
 import type { Seniority, UserSettings, CvData } from '../types/types'
 
 // ── Tag input ─────────────────────────────────────────────────────────────────
@@ -220,6 +229,107 @@ const DEFAULT_SETTINGS: UserSettings = {
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 type TestStatus = 'idle' | 'testing' | 'ok' | 'error'
 
+// ── Store dev panel ───────────────────────────────────────────────────────────
+
+type StoreTestStatus = 'idle' | 'running' | 'pass' | 'fail'
+
+const TEST_ID = '__dev_test_job__'
+
+function StoreDevPanel() {
+  const [status, setStatus_] = useState<StoreTestStatus>('idle')
+  const [lines, setLines] = useState<string[]>([])
+
+  async function runTests() {
+    setStatus_('running')
+    const log: string[] = []
+    let passed = 0
+
+    function check(label: string, ok: boolean) {
+      log.push(`${ok ? '✓' : '✗'} ${label}`)
+      if (ok) passed++
+    }
+
+    try {
+      // Clean up any leftover from a previous run
+      await deleteJob(TEST_ID)
+
+      // 1. Insert a new job
+      const r1 = await upsertJob({
+        id: TEST_ID,
+        source: 'greenhouse',
+        company: 'Acme Corp',
+        title: 'Intern',
+        url: 'https://example.com/job/1',
+      })
+      check('upsertJob creates record with status="seen"', r1.status === 'seen')
+      check('statusHistory has 1 entry after insert', r1.statusHistory.length === 1)
+
+      // 2. Advance status to 'saved'
+      await setStatus(TEST_ID, 'saved')
+      const r2 = await getJob(TEST_ID)
+      check('setStatus("saved") updates status', r2?.status === 'saved')
+      check('setStatus appends to statusHistory', r2?.statusHistory.length === 2)
+
+      // 3. Upsert the SAME id again — status must stay 'saved'
+      await upsertJob({
+        id: TEST_ID,
+        source: 'greenhouse',
+        company: 'Acme Corp',
+        title: 'Intern (updated title)',
+        url: 'https://example.com/job/1',
+      })
+      const r3 = await getJob(TEST_ID)
+      check('upsertJob deduplicates: status still "saved"', r3?.status === 'saved')
+      check('upsertJob deduplicates: history unchanged', r3?.statusHistory.length === 2)
+      check('upsertJob refreshes title', r3?.title === 'Intern (updated title)')
+
+      // 4. Query helpers
+      const all = await getAllJobs()
+      check('getAllJobs returns ≥ 1 record', all.length >= 1)
+      const bySaved = await getJobsByStatus('saved')
+      check('getJobsByStatus("saved") includes test record', bySaved.some((j) => j.id === TEST_ID))
+
+      // 5. isGhosted should be false (applied 0 ms ago)
+      await setStatus(TEST_ID, 'applied')
+      const r4 = await getJob(TEST_ID)
+      check('isGhosted is false immediately after applying', r4 ? !isGhosted(r4) : false)
+
+      setLines([...log, '', `${passed}/${log.filter((l) => l.startsWith('✓') || l.startsWith('✗')).length} checks passed`])
+      setStatus_(passed === log.filter((l) => l.startsWith('✓') || l.startsWith('✗')).length ? 'pass' : 'fail')
+    } catch (err) {
+      setLines([...log, `ERROR: ${err instanceof Error ? err.message : String(err)}`])
+      setStatus_('fail')
+    } finally {
+      // Clean up the test record
+      await deleteJob(TEST_ID).catch(() => undefined)
+    }
+  }
+
+  return (
+    <section className="bg-amber-50 rounded-xl border border-amber-200 p-6">
+      <h2 className="text-base font-semibold text-amber-800 mb-1">Developer — Store checks</h2>
+      <p className="text-xs text-amber-700 mb-3">
+        Verifies IndexedDB dedup and status-history behaviour. Remove this section after Phase 3.
+      </p>
+      <button
+        onClick={runTests}
+        disabled={status === 'running'}
+        className="px-4 py-1.5 text-sm font-medium bg-amber-100 text-amber-800 rounded-lg hover:bg-amber-200 disabled:opacity-50 transition-colors"
+      >
+        {status === 'running' ? 'Running…' : 'Run store tests'}
+      </button>
+      {lines.length > 0 && (
+        <pre className={[
+          'mt-3 text-xs font-mono whitespace-pre-wrap p-3 rounded-lg',
+          status === 'pass' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800',
+        ].join(' ')}>
+          {lines.join('\n')}
+        </pre>
+      )}
+    </section>
+  )
+}
+
 export default function App() {
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS)
   const [cvData, setCvData] = useState<CvData | null>(null)
@@ -335,6 +445,9 @@ export default function App() {
 
           {/* ── CV Upload ── */}
           <CvSection cvData={cvData} onCvChange={setCvData} />
+
+          {/* ── Store dev panel ── */}
+          <StoreDevPanel />
 
           {/* ── Save ── */}
           <div className="flex items-center gap-3">

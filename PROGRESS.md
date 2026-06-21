@@ -28,17 +28,28 @@
   - Popup renders job card (ATS badge, title, company, description preview) or "No job detected"
   - `JobData` type added to `src/types/types.ts`
 
+- **Phase 4 — Application record store** (2026-06-22)
+  - `ApplicationRecord` type: id, source, company, title, url, status (AppStatus enum), statusHistory[], matchScore, matchReason, tailoredResume, tailoredCoverLetter, notes, createdAt, updatedAt
+  - `src/lib/store.ts`: IndexedDB via `idb` v8; indexes on status, company, updatedAt
+  - `upsertJob`: insert-or-refresh — refreshes title/company/url but never touches status or history (dedup guarantee)
+  - `setStatus`, `setMatch`, `setTailored`, `setNotes`: atomic read-modify-write via IDB transactions
+  - `getAllJobs`, `getJob`, `getJobsByStatus`: read helpers
+  - `isGhosted(record)`: pure function, computed on read — true when status=applied for >21 days
+  - `deleteJob`: used only by dev test cleanup
+  - Options page: amber "Developer — Store checks" panel with 7 automated assertions; cleans up after itself; remove after Phase 5
+
 ## Current
 
 _Nothing in progress._
 
 ## Next
 
-- **Phase 4 — CV ↔ Job matching**
+- **Phase 5 — CV ↔ Job matching**
   - "Match" button in popup (visible when job detected + CV loaded)
   - Sends CV text + job description to Gemini; prompt instructs no fabrication
   - Returns match score (0–100) and matched / missing keyword lists
   - Popup shows score bar and keyword chips
+  - Calls `upsertJob` + `setMatch` to persist the result
 
 ## Notes / decisions
 
