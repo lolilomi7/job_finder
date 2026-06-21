@@ -1,6 +1,15 @@
+export type Seniority = 'intern' | 'junior' | 'senior'
+
+export interface UserSettings {
+  geminiApiKey: string
+  targetTitles: string[]
+  locations: string[]
+  seniority: Seniority
+}
+
 export interface StorageData {
   cvText: string
-  geminiApiKey: string
+  userSettings: UserSettings
 }
 
 export interface JobData {
