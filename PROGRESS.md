@@ -16,16 +16,22 @@
   - Popup: reads `cvText` on mount; shows "CV loaded — N words" or "No CV loaded"
   - `@types/chrome` added for full TypeScript coverage of Chrome extension APIs
 
+- **Phase 2 — ATS job detection** (2026-06-22)
+  - `src/content/index.ts`: content script with per-ATS DOM extractors (Greenhouse, Lever, Workday)
+  - Manifest: `activeTab` permission + `content_scripts` for all three ATS URL patterns
+  - Popup queries active tab on open, sends `GET_JOB` to content script, renders job card (ATS badge, title, company, description preview) or "No job detected" state
+  - `JobData` type added to `src/types/types.ts`
+
 ## Current
 
 _Nothing in progress._
 
 ## Next
 
-- **Phase 2 — ATS feed discovery**
-  - Detect when the active tab is a supported ATS job listing (Greenhouse, Lever, Workday)
-  - Content script extracts job title, company, description, requirements
-  - Popup shows extracted job info when on a recognised ATS page
+- **Phase 3 — CV ↔ Job matching**
+  - Send CV text + job description to Gemini API
+  - Return a match score and list of matched / missing keywords
+  - Popup shows match score and keyword breakdown below the job card
 
 ## Notes / decisions
 

@@ -12,7 +12,19 @@ const manifest = defineManifest({
     default_title: 'Apply Co-Pilot',
   },
   options_page: 'src/options/index.html',
-  permissions: ['storage'],
+  permissions: ['storage', 'activeTab'],
+  content_scripts: [
+    {
+      matches: [
+        'https://boards.greenhouse.io/*/jobs/*',
+        'https://job-boards.greenhouse.io/*/jobs/*',
+        'https://jobs.lever.co/*/*',
+        'https://*.myworkdayjobs.com/*',
+      ],
+      js: ['src/content/index.ts'],
+      run_at: 'document_idle',
+    },
+  ],
 })
 
 export default defineConfig({
