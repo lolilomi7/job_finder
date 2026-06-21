@@ -16,6 +16,7 @@ const ATS_COLOR: Record<JobData['ats'], string> = {
 
 export default function App() {
   const [wordCount, setWordCount] = useState<number | null>(null)
+  const [cvFilename, setCvFilename] = useState<string | null>(null)
   const [job, setJob] = useState<JobData | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -23,16 +24,21 @@ export default function App() {
     async function load() {
       try {
         const [data, tabs] = await Promise.all([
-          getStorage(['cvText']),
+          getStorage(['cvData']),
           chrome.tabs.query({ active: true, currentWindow: true }),
         ])
 
-        const cvText = data.cvText?.trim()
-        if (cvText) setWordCount(cvText.split(/\s+/).length)
+        const text = data.cvData?.rawText?.trim()
+        if (text) {
+          setWordCount(text.split(/\s+/).length)
+          setCvFilename(data.cvData?.filename ?? null)
+        }
 
         const tabId = tabs[0]?.id
         if (tabId) {
-          const detected = await chrome.tabs.sendMessage(tabId, { type: 'GET_JOB' }).catch(() => null)
+          const detected = await chrome.tabs
+            .sendMessage(tabId, { type: 'GET_JOB' })
+            .catch(() => null)
           if (detected) setJob(detected as JobData)
         }
       } catch {
@@ -62,9 +68,7 @@ export default function App() {
               {ATS_LABEL[job.ats]}
             </span>
             <h2 className="text-sm font-semibold text-gray-800 leading-snug">{job.title}</h2>
-            {job.company && (
-              <p className="text-xs text-gray-500 capitalize">{job.company}</p>
-            )}
+            {job.company && <p className="text-xs text-gray-500 capitalize">{job.company}</p>}
             {job.description && (
               <p className="text-xs text-gray-400 leading-relaxed line-clamp-3">
                 {job.description.slice(0, 280)}
@@ -82,7 +86,11 @@ export default function App() {
 
         <div className={`flex items-center gap-1.5 text-xs pt-3 border-t border-gray-100 mt-auto ${hasCv ? 'text-green-600' : 'text-gray-400'}`}>
           <span>{hasCv ? '✓' : '○'}</span>
-          <span>{hasCv ? `CV loaded — ${wordCount} words` : 'No CV loaded'}</span>
+          <span>
+            {hasCv
+              ? `${cvFilename ?? 'CV'} — ${wordCount} words`
+              : 'No CV loaded'}
+          </span>
         </div>
       </main>
 

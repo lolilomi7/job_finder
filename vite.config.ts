@@ -29,4 +29,9 @@ const manifest = defineManifest({
 
 export default defineConfig({
   plugins: [react(), crx({ manifest })],
+  build: {
+    // pdfjs-dist + mammoth only load in the options page, not the popup.
+    // 1500 kB limit avoids false-alarm warnings for the settings bundle.
+    chunkSizeWarningLimit: 1500,
+  },
 })

@@ -10,17 +10,22 @@
 
 - **Phase 1 — Settings page + Gemini client** (2026-06-22)
   - `UserSettings` type: `geminiApiKey`, `targetTitles[]`, `locations[]`, `seniority`
-  - `StorageData`: `{ cvText, userSettings }` — all on-device via `chrome.storage.local`
   - `src/lib/storage.ts`: typed `getStorage` / `setStorage` wrappers
-  - `src/lib/gemini.ts`: `testKey(apiKey)` + `sendPrompt(prompt)` using `@google/generative-ai`; key read from `chrome.storage.local`, never logged or hard-coded
-  - Options page: API key input (show/hide, Test key button with success/error feedback), search preferences (tag inputs for job titles + locations, seniority toggle), CV textarea, single Save button
-  - Popup: reads `cvText` on open, shows word count or "No CV loaded"
-  - `@types/chrome` added for Chrome API type coverage
+  - `src/lib/gemini.ts`: `testKey(apiKey)` + `sendPrompt(prompt)` via `@google/generative-ai`
+  - Options page: API key (show/hide + Test key), search preferences (tag inputs + seniority toggle), CV textarea, Save button
 
-- **Phase 2 — ATS job detection** (2026-06-22)
+- **Phase 2 — CV upload & parsing** (2026-06-22)
+  - `CvData` type: `{ rawText, filename, parsedAt }` — replaces flat `cvText` in `StorageData`
+  - `src/lib/cv.ts`: `parseFile(file)` — PDF via `pdfjs-dist` (v5, worker bundled via `?url`), .docx via `mammoth`; throws with user-readable message on unsupported type or empty extraction
+  - `src/types/mammoth.d.ts`: hand-written type declaration (no `@types/mammoth` on npm)
+  - Options page CV section: drag-and-drop / click-to-browse upload zone, parsing status states (idle / parsing / done / error), editable extracted-text textarea + word count, fallback to paste-directly
+  - Popup: reads `cvData.rawText` and shows filename + word count or "No CV loaded"
+  - `build.chunkSizeWarningLimit: 1500` — pdfjs + mammoth only bundle into the options page, not the popup
+
+- **Phase 3 — ATS job detection** (2026-06-22)
   - `src/content/index.ts`: content script with per-ATS DOM extractors (Greenhouse, Lever, Workday)
-  - Manifest: `activeTab` permission + `content_scripts` for all three ATS URL patterns
-  - Popup queries active tab on open, sends `GET_JOB` to content script, renders job card (ATS badge, title, company, description preview) or "No job detected" state
+  - Manifest: `activeTab` + `content_scripts` for all three ATS URL patterns
+  - Popup renders job card (ATS badge, title, company, description preview) or "No job detected"
   - `JobData` type added to `src/types/types.ts`
 
 ## Current
@@ -29,17 +34,18 @@ _Nothing in progress._
 
 ## Next
 
-- **Phase 3 — CV ↔ Job matching**
-  - On popup with job detected: "Match" button sends CV + job description to Gemini
-  - Gemini returns match score (0–100) and lists matched / missing keywords
-  - Popup shows score bar and keyword chips below the job card
+- **Phase 4 — CV ↔ Job matching**
+  - "Match" button in popup (visible when job detected + CV loaded)
+  - Sends CV text + job description to Gemini; prompt instructs no fabrication
+  - Returns match score (0–100) and matched / missing keyword lists
+  - Popup shows score bar and keyword chips
 
 ## Notes / decisions
 
-- Tailwind CSS v3 (not v4) — stable `tailwind.config.js` + PostCSS pipeline.
-- Manifest defined via `defineManifest()` in `vite.config.ts`; build outputs `dist/manifest.json`.
-- **Load unpacked**: point Chrome to the `dist/` folder after `npm run build`.
-- `chrome.storage.local` over `sync` — CV data can exceed the 8 KB sync quota.
-- Gemini model pinned to `gemini-1.5-flash` in `src/lib/gemini.ts` (`MODEL` constant).
-- `UserSettings` stored as a single object under the `userSettings` key; `cvText` remains top-level.
-- TagInput: Enter or comma adds a tag; Backspace on empty removes the last tag.
+- Tailwind CSS v3 (not v4); manifest via `defineManifest()` in `vite.config.ts`.
+- **Load unpacked**: point Chrome to `dist/` folder after `npm run build`.
+- `chrome.storage.local` over `sync` — CV text exceeds 8 KB sync quota.
+- Gemini model pinned to `gemini-1.5-flash` (constant in `src/lib/gemini.ts`).
+- `cvData` stored as `{ rawText, filename, parsedAt }`; `userSettings` stores preferences.
+- pdfjs worker emitted as `pdf.worker.min-[hash].mjs` in `dist/assets/`; loaded via `?url`.
+- Image-based/scanned PDFs will fail extraction gracefully — user sees a clear message + paste fallback.

@@ -1,7 +1,15 @@
-import { useEffect, useState, KeyboardEvent } from 'react'
+import {
+  useEffect,
+  useState,
+  useRef,
+  KeyboardEvent,
+  DragEvent,
+  ChangeEvent,
+} from 'react'
 import { getStorage, setStorage } from '../lib/storage'
 import { testKey } from '../lib/gemini'
-import type { Seniority, UserSettings } from '../types/types'
+import { parseFile } from '../lib/cv'
+import type { Seniority, UserSettings, CvData } from '../types/types'
 
 // ── Tag input ─────────────────────────────────────────────────────────────────
 
@@ -23,31 +31,17 @@ function TagInput({
   }
 
   function handleKey(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter' || e.key === ',') {
-      e.preventDefault()
-      commit()
-    }
-    if (e.key === 'Backspace' && input === '' && tags.length > 0) {
-      onChange(tags.slice(0, -1))
-    }
+    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); commit() }
+    if (e.key === 'Backspace' && input === '' && tags.length > 0) onChange(tags.slice(0, -1))
   }
 
   return (
     <div className="flex flex-wrap gap-1.5 items-center p-2 border border-gray-200 rounded-lg min-h-10 focus-within:ring-2 focus-within:ring-blue-500">
       {tags.map((tag) => (
-        <span
-          key={tag}
-          className="flex items-center gap-1 bg-blue-50 text-blue-700 text-xs px-2 py-0.5 rounded-full"
-        >
+        <span key={tag} className="flex items-center gap-1 bg-blue-50 text-blue-700 text-xs px-2 py-0.5 rounded-full">
           {tag}
-          <button
-            type="button"
-            onClick={() => onChange(tags.filter((t) => t !== tag))}
-            className="hover:text-blue-900 leading-none"
-            aria-label={`Remove ${tag}`}
-          >
-            ×
-          </button>
+          <button type="button" onClick={() => onChange(tags.filter((t) => t !== tag))}
+            className="hover:text-blue-900 leading-none" aria-label={`Remove ${tag}`}>×</button>
         </span>
       ))}
       <input
@@ -62,7 +56,7 @@ function TagInput({
   )
 }
 
-// ── Seniority selector ────────────────────────────────────────────────────────
+// ── Seniority picker ──────────────────────────────────────────────────────────
 
 const SENIORITY_OPTIONS: { value: Seniority; label: string }[] = [
   { value: 'intern', label: 'Intern' },
@@ -70,32 +64,147 @@ const SENIORITY_OPTIONS: { value: Seniority; label: string }[] = [
   { value: 'senior', label: 'Senior' },
 ]
 
-function SeniorityPicker({
-  value,
-  onChange,
-}: {
-  value: Seniority
-  onChange: (v: Seniority) => void
-}) {
+function SeniorityPicker({ value, onChange }: { value: Seniority; onChange: (v: Seniority) => void }) {
   return (
     <div className="flex rounded-lg border border-gray-200 overflow-hidden w-fit">
       {SENIORITY_OPTIONS.map(({ value: v, label }, i) => (
-        <button
-          key={v}
-          type="button"
-          onClick={() => onChange(v)}
-          className={[
-            'px-4 py-1.5 text-sm font-medium transition-colors',
+        <button key={v} type="button" onClick={() => onChange(v)}
+          className={['px-4 py-1.5 text-sm font-medium transition-colors',
             i > 0 ? 'border-l border-gray-200' : '',
-            value === v
-              ? 'bg-blue-600 text-white'
-              : 'bg-white text-gray-600 hover:bg-gray-50',
-          ].join(' ')}
-        >
+            value === v ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50',
+          ].join(' ')}>
           {label}
         </button>
       ))}
     </div>
+  )
+}
+
+// ── CV upload section ─────────────────────────────────────────────────────────
+
+type ParseStatus = 'idle' | 'parsing' | 'done' | 'error'
+
+function CvSection({
+  cvData,
+  onCvChange,
+}: {
+  cvData: CvData | null
+  onCvChange: (data: CvData) => void
+}) {
+  const [parseStatus, setParseStatus] = useState<ParseStatus>('idle')
+  const [parseError, setParseError] = useState('')
+  const [isDragging, setIsDragging] = useState(false)
+  const [editedText, setEditedText] = useState(cvData?.rawText ?? '')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    setEditedText(cvData?.rawText ?? '')
+  }, [cvData?.rawText])
+
+  async function handleFile(file: File) {
+    setParseStatus('parsing')
+    setParseError('')
+    try {
+      const parsed = await parseFile(file)
+      setParseStatus('done')
+      setEditedText(parsed.rawText)
+      onCvChange(parsed)
+    } catch (err) {
+      setParseStatus('error')
+      setParseError(err instanceof Error ? err.message : 'Failed to parse file.')
+    }
+  }
+
+  function onFileInput(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (file) void handleFile(file)
+    e.target.value = ''
+  }
+
+  function onDrop(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    setIsDragging(false)
+    const file = e.dataTransfer.files[0]
+    if (file) void handleFile(file)
+  }
+
+  function onDragOver(e: DragEvent<HTMLDivElement>) { e.preventDefault(); setIsDragging(true) }
+  function onDragLeave() { setIsDragging(false) }
+
+  function handleTextEdit(text: string) {
+    setEditedText(text)
+    if (cvData) {
+      onCvChange({ ...cvData, rawText: text })
+    } else {
+      onCvChange({ rawText: text, filename: 'manual', parsedAt: Date.now() })
+    }
+  }
+
+  const wordCount = editedText.trim() ? editedText.trim().split(/\s+/).length : 0
+  const hasText = editedText.trim().length > 0
+
+  return (
+    <section className="bg-white rounded-xl border border-gray-200 p-6">
+      <h2 className="text-base font-semibold text-gray-800 mb-1">Your CV</h2>
+      <p className="text-xs text-gray-500 mb-4">
+        Upload a PDF or .docx — parsed entirely in your browser, never sent anywhere.
+        You can edit the extracted text before saving.
+      </p>
+
+      {/* Drop zone */}
+      <div
+        onDrop={onDrop}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onClick={() => fileInputRef.current?.click()}
+        className={[
+          'border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-colors mb-4',
+          isDragging ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50',
+        ].join(' ')}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.docx"
+          className="hidden"
+          onChange={onFileInput}
+        />
+        {parseStatus === 'parsing' ? (
+          <p className="text-sm text-blue-600 animate-pulse">Parsing…</p>
+        ) : (
+          <>
+            <p className="text-sm text-gray-500 font-medium">
+              {cvData ? `Replace: ${cvData.filename}` : 'Drop your CV here or click to browse'}
+            </p>
+            <p className="text-xs text-gray-400 mt-1">PDF or .docx</p>
+          </>
+        )}
+      </div>
+
+      {parseStatus === 'error' && (
+        <p className="text-xs text-red-500 mb-3">&#x2717; {parseError}</p>
+      )}
+
+      {parseStatus === 'done' && (
+        <p className="text-xs text-green-600 mb-3">&#x2713; Parsed successfully — review and edit below.</p>
+      )}
+
+      {/* Editable text area */}
+      <div className="flex flex-col gap-1">
+        <label className="text-xs font-medium text-gray-600">
+          {hasText ? 'Extracted text (editable)' : 'Or paste CV text directly'}
+        </label>
+        <textarea
+          className="w-full h-52 text-sm border border-gray-200 rounded-lg p-3 resize-y focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-300"
+          placeholder="Paste your CV here, or upload a file above…"
+          value={editedText}
+          onChange={(e) => handleTextEdit(e.target.value)}
+        />
+        {wordCount > 0 && (
+          <p className="text-xs text-gray-400">{wordCount} words</p>
+        )}
+      </div>
+    </section>
   )
 }
 
@@ -113,9 +222,8 @@ type TestStatus = 'idle' | 'testing' | 'ok' | 'error'
 
 export default function App() {
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS)
-  const [cvText, setCvText] = useState('')
+  const [cvData, setCvData] = useState<CvData | null>(null)
   const [showKey, setShowKey] = useState(false)
-
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [testStatus, setTestStatus] = useState<TestStatus>('idle')
   const [testError, setTestError] = useState('')
@@ -123,9 +231,9 @@ export default function App() {
   useEffect(() => {
     async function load() {
       try {
-        const data = await getStorage(['userSettings', 'cvText'])
+        const data = await getStorage(['userSettings', 'cvData'])
         setSettings({ ...DEFAULT_SETTINGS, ...data.userSettings })
-        setCvText(data.cvText ?? '')
+        if (data.cvData) setCvData(data.cvData)
       } catch {
         // storage unavailable
       }
@@ -140,7 +248,9 @@ export default function App() {
   async function handleSave() {
     setSaveStatus('saving')
     try {
-      await setStorage({ userSettings: settings, cvText })
+      const toSave: Partial<import('../types/types').StorageData> = { userSettings: settings }
+      if (cvData) toSave.cvData = cvData
+      await setStorage(toSave)
       setSaveStatus('saved')
       setTimeout(() => setSaveStatus('idle'), 2500)
     } catch {
@@ -160,8 +270,6 @@ export default function App() {
     }
   }
 
-  const wordCount = cvText.trim() ? cvText.trim().split(/\s+/).length : 0
-
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-2xl mx-auto px-6 py-10">
@@ -171,21 +279,14 @@ export default function App() {
         </header>
 
         <div className="flex flex-col gap-6">
-          {/* ── API Key ──────────────────────────────────────────────────── */}
+          {/* ── API Key ── */}
           <section className="bg-white rounded-xl border border-gray-200 p-6">
             <h2 className="text-base font-semibold text-gray-800 mb-1">Gemini API Key</h2>
             <p className="text-xs text-gray-500 mb-3">
               Stored on this device only. Only sent to Google's Gemini API.{' '}
-              <a
-                href="https://aistudio.google.com/app/apikey"
-                target="_blank"
-                rel="noreferrer"
-                className="text-blue-500 hover:underline"
-              >
-                Get a free key ↗
-              </a>
+              <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer"
+                className="text-blue-500 hover:underline">Get a free key ↗</a>
             </p>
-
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <input
@@ -193,110 +294,56 @@ export default function App() {
                   className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 pr-14 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-300"
                   placeholder="AIza…"
                   value={settings.geminiApiKey}
-                  onChange={(e) => {
-                    patch({ geminiApiKey: e.target.value })
-                    setTestStatus('idle')
-                  }}
+                  onChange={(e) => { patch({ geminiApiKey: e.target.value }); setTestStatus('idle') }}
                   autoComplete="off"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowKey((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600"
-                >
+                <button type="button" onClick={() => setShowKey((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600">
                   {showKey ? 'Hide' : 'Show'}
                 </button>
               </div>
-
-              <button
-                type="button"
-                onClick={handleTestKey}
+              <button type="button" onClick={handleTestKey}
                 disabled={!settings.geminiApiKey.trim() || testStatus === 'testing'}
-                className="px-4 py-2 text-sm font-medium border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 transition-colors whitespace-nowrap"
-              >
+                className="px-4 py-2 text-sm font-medium border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 transition-colors whitespace-nowrap">
                 {testStatus === 'testing' ? 'Testing…' : 'Test key'}
               </button>
             </div>
-
-            {testStatus === 'ok' && (
-              <p className="text-xs text-green-600 mt-2">✓ Key is working</p>
-            )}
-            {testStatus === 'error' && (
-              <p className="text-xs text-red-500 mt-2">✗ {testError}</p>
-            )}
+            {testStatus === 'ok' && <p className="text-xs text-green-600 mt-2">&#x2713; Key is working</p>}
+            {testStatus === 'error' && <p className="text-xs text-red-500 mt-2">&#x2717; {testError}</p>}
           </section>
 
-          {/* ── Search Preferences ───────────────────────────────────────── */}
+          {/* ── Search Preferences ── */}
           <section className="bg-white rounded-xl border border-gray-200 p-6">
             <h2 className="text-base font-semibold text-gray-800 mb-4">Search Preferences</h2>
-
             <div className="flex flex-col gap-4">
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                  Target job titles
-                </label>
-                <TagInput
-                  tags={settings.targetTitles}
-                  onChange={(t) => patch({ targetTitles: t })}
-                  placeholder="e.g. Software Engineer Intern — press Enter to add"
-                />
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Target job titles</label>
+                <TagInput tags={settings.targetTitles} onChange={(t) => patch({ targetTitles: t })}
+                  placeholder="e.g. Software Engineer Intern — press Enter to add" />
               </div>
-
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                  Locations
-                </label>
-                <TagInput
-                  tags={settings.locations}
-                  onChange={(l) => patch({ locations: l })}
-                  placeholder="e.g. Remote, New York — press Enter to add"
-                />
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Locations</label>
+                <TagInput tags={settings.locations} onChange={(l) => patch({ locations: l })}
+                  placeholder="e.g. Remote, New York — press Enter to add" />
               </div>
-
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                  Seniority
-                </label>
-                <SeniorityPicker
-                  value={settings.seniority}
-                  onChange={(s) => patch({ seniority: s })}
-                />
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Seniority</label>
+                <SeniorityPicker value={settings.seniority} onChange={(s) => patch({ seniority: s })} />
               </div>
             </div>
           </section>
 
-          {/* ── CV ───────────────────────────────────────────────────────── */}
-          <section className="bg-white rounded-xl border border-gray-200 p-6">
-            <h2 className="text-base font-semibold text-gray-800 mb-1">Your CV</h2>
-            <p className="text-xs text-gray-500 mb-3">
-              Plain text only. Never leaves this device.
-            </p>
-            <textarea
-              className="w-full h-52 text-sm border border-gray-200 rounded-lg p-3 resize-y focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-300"
-              placeholder="Paste your CV here…"
-              value={cvText}
-              onChange={(e) => setCvText(e.target.value)}
-            />
-            {wordCount > 0 && (
-              <p className="text-xs text-gray-400 mt-1">{wordCount} words</p>
-            )}
-          </section>
+          {/* ── CV Upload ── */}
+          <CvSection cvData={cvData} onCvChange={setCvData} />
 
-          {/* ── Save ─────────────────────────────────────────────────────── */}
+          {/* ── Save ── */}
           <div className="flex items-center gap-3">
-            <button
-              onClick={handleSave}
-              disabled={saveStatus === 'saving'}
-              className="px-5 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-            >
+            <button onClick={handleSave} disabled={saveStatus === 'saving'}
+              className="px-5 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
               {saveStatus === 'saving' ? 'Saving…' : 'Save'}
             </button>
-            {saveStatus === 'saved' && (
-              <span className="text-sm text-green-600">Saved!</span>
-            )}
-            {saveStatus === 'error' && (
-              <span className="text-sm text-red-500">Failed to save. Try again.</span>
-            )}
+            {saveStatus === 'saved' && <span className="text-sm text-green-600">Saved!</span>}
+            {saveStatus === 'error' && <span className="text-sm text-red-500">Failed to save. Try again.</span>}
           </div>
         </div>
       </div>

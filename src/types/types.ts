@@ -7,8 +7,14 @@ export interface UserSettings {
   seniority: Seniority
 }
 
+export interface CvData {
+  rawText: string
+  filename: string
+  parsedAt: number // Unix timestamp ms
+}
+
 export interface StorageData {
-  cvText: string
+  cvData: CvData
   userSettings: UserSettings
 }
 
