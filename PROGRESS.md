@@ -9,17 +9,23 @@
   - Manifest V3: `storage` permission, popup + options page registered
   - `CLAUDE.md` and `PROGRESS.md` created with full project context
 
+- **Phase 1 — CV storage** (2026-06-22)
+  - `src/types/types.ts`: `StorageData` interface (`cvText`, `geminiApiKey`)
+  - `src/lib/storage.ts`: typed `getStorage` / `setStorage` wrappers over `chrome.storage.local`
+  - Options page: CV textarea (word count display) + Gemini API key input (show/hide toggle) + Save button with feedback states
+  - Popup: reads `cvText` on mount; shows "CV loaded — N words" or "No CV loaded"
+  - `@types/chrome` added for full TypeScript coverage of Chrome extension APIs
+
 ## Current
 
 _Nothing in progress._
 
 ## Next
 
-- **Phase 1 — CV storage**
-  - Options page: textarea/file-upload for CV text, saved to `chrome.storage.local`
-  - Options page: Gemini API key input, saved to `chrome.storage.local`
-  - Popup: display loaded CV name / "No CV loaded" status
-  - Verify: save CV → reload extension → popup reflects saved state
+- **Phase 2 — ATS feed discovery**
+  - Detect when the active tab is a supported ATS job listing (Greenhouse, Lever, Workday)
+  - Content script extracts job title, company, description, requirements
+  - Popup shows extracted job info when on a recognised ATS page
 
 ## Notes / decisions
 
